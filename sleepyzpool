@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+
+# Copyright (c) 2023 Anton Semjonov
+# Licensed under the MIT License
+
+from subprocess import run, Popen, PIPE, TimeoutExpired
+import argparse, sys
+
+# argument type for limit and interval
+def positive(minimum: int = 1):
+  def positive_arg(s: str) -> int:
+    if int(s) < minimum: raise ValueError
+    return int(s)
+  return positive_arg
+
+# get pool name and disks from commandline
+# TODO: check if disks are actually disks, zpool binary exists, etc.
+parser = argparse.ArgumentParser()
+parser.add_argument("pool", help="the zpool name to watch with iostat")
+parser.add_argument("disks", help="one or more disks to send to standby", nargs="+")
+parser.add_argument("--limit", "-l", help="limit in intervals before spinning down disks", type=positive(1), default=20)
+parser.add_argument("--interval", help="iostat interval in seconds", type=positive(10), default=60)
+args = parser.parse_args()
+
+def in_standby(disk: str) -> bool:
+  "Check if a disk is in standby / spun down with hdparm."
+  check = run(["hdparm", "-C", disk], capture_output=True, check=True, timeout=2)
+  lines = check.stdout.splitlines(keepends=False)
+  if len(lines) > 3 or lines[0] != b"" or lines[1] != f"{disk}:".encode():
+    raise ValueError("unexpected command output from 'hdparm -C'")
+  return lines[2].endswith(b"standby")
+
+def standby(disk: str):
+  "Send a disk into low-power standby mode / spin down."
+  run(["hdparm", "-y", disk], capture_output=True, check=True, timeout=10)
+
+# keep a counter of idle minutes for each disk
+counters = { disk: 0 for disk in args.disks }
+
+# start the zpool iostat and parse the stdout lines
+# -y : skip first line (since boot)
+# -p : exact numbers
+# -H : scripted mode without header
+iostat = Popen(["zpool", "iostat", "-ypH", args.pool, str(args.interval)], stdout=PIPE)
+for line in iostat.stdout:
+  
+  # split the stats from line
+  stats = [int(x) for x in line.strip().decode().split("\t")[1:]]
+  alloc, free, r_ops, w_ops, r_bw, w_bw = stats
+
+  # if there were any ops, reset all counters and skip rest of the loop
+  if any(( x > 0 for x in [r_ops, w_ops, r_bw, w_bw] )):
+    for disk in counters.keys():
+      counters[disk] = 0
+    print({ "iostat": [r_ops, w_ops, r_bw, w_bw], "counters": list(counters.values()) }, flush=True) # TODO: debug
+    continue
+
+  # otherwise iterate over disks and increment counter when awake
+  for disk in args.disks:
+
+    # keep counter at zero as long as the disk is in standby
+    try:
+      if in_standby(disk):
+        counters[disk] = 0
+        continue
+    except TimeoutExpired:
+      print(f"ERR: hdparm timed out for {disk}, skipping", file=sys.stderr, flush=True) # TODO: nicer logging
+      continue
+
+    # increment in active and check if limit reached
+    counters[disk] += 1
+    if counters[disk] >= args.limit:
+      print(f"issue standby: {disk}", flush=True) # TODO: debug
+      standby(disk)
+      counters[disk] = 0
+
+  print({ "iostat": [r_ops, w_ops, r_bw, w_bw], "counters": list(counters.values()) }, flush=True) # TODO: debug
+
+# wait for process to end (should never get here, unless zpool is killed)
+iostat.communicate()
