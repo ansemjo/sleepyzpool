@@ -16,8 +16,8 @@ def positive(s: str) -> int:
 parser = argparse.ArgumentParser()
 parser.add_argument("pool", help="the zpool name to watch with iostat")
 parser.add_argument("disks", help="one or more disks to send to standby", nargs="+")
-parser.add_argument("--limit", "-l", help="limit in intervals before spinning down disks", type=positive, default=20)
-parser.add_argument("--interval", help="iostat interval in seconds", type=positive, default=60)
+parser.add_argument("--limit", "-l", metavar="N", help="limit in intervals before spinning down disks", type=positive, default=20)
+parser.add_argument("--interval", "-i", metavar="S", help="iostat interval in seconds", type=positive, default=60)
 args = parser.parse_args()
 
 def in_standby(disk: str) -> bool | None:
