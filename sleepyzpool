@@ -4,7 +4,7 @@
 # Licensed under the MIT License
 
 from subprocess import run, Popen, PIPE, TimeoutExpired
-import argparse, sys
+import argparse, sys, signal
 
 # argument type for limit and interval
 def positive(s: str) -> int:
@@ -50,6 +50,13 @@ spindown = { disk: False for disk in args.disks }
 # -y : skip first line (since boot)
 # -H : scripted mode without header
 iostat = Popen(["zpool", "iostat", "-yH", args.pool, str(args.interval)], stdout=PIPE)
+
+# register a signal handler to terminate on ^C
+def interrupt(signal, frame):
+  iostat.terminate()
+signal.signal(signal.SIGINT, interrupt)
+
+# handle iostat output until it's killed
 for line in iostat.stdout:
   
   # split the stats from line
@@ -93,5 +100,5 @@ for line in iostat.stdout:
   print(f"iostat\tops[{r_ops}, {w_ops}]\tbw[{r_bw}, {w_bw}]\tcounters{list(counters.values())}", flush=True)
 
 
-# wait for process to end (should never get here, unless 'zpool iostat' is killed)
+# wait for process to end after interrupt
 iostat.communicate()
