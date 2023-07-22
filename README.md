@@ -26,6 +26,10 @@ Additionally you can configure the timeout with two optional flags: `interval ×
 * `--interval` is the interval in seconds; `60` might make sense
 * `--limit` is the number of intervals with no I/O before issuing the standby command
 
+And optionally:
+
+* `--quiet` will silence the `iostat` log output when all disks are spun down
+
 ### example
 
 This is an example with a very short timeout (6 × 10 seconds) on a zpool `tank` across four drives:

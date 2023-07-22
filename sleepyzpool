@@ -18,6 +18,7 @@ parser.add_argument("pool", help="the zpool name to watch with iostat")
 parser.add_argument("disks", help="one or more disks to send to standby", nargs="+")
 parser.add_argument("--limit", "-l", metavar="N", help="limit in intervals before spinning down disks", type=positive, default=20)
 parser.add_argument("--interval", "-i", metavar="S", help="iostat interval in seconds", type=positive, default=60)
+parser.add_argument("--quiet", "-q", help="silence iostat log when all disks are asleep", action="store_true")
 args = parser.parse_args()
 
 def in_standby(disk: str) -> bool | None:
@@ -42,6 +43,9 @@ def issue_standby(disk: str) -> bool:
 # keep a counter of idle minutes for each disk
 counters = { disk: 0 for disk in args.disks }
 
+# silence logs when all disks are spun down as long as there is no activity
+spindown = { disk: False for disk in args.disks }
+
 # start the zpool iostat and parse the stdout lines
 # -y : skip first line (since boot)
 # -H : scripted mode without header
@@ -55,6 +59,7 @@ for line in iostat.stdout:
   if any(( s != "0" for s in [r_ops, w_ops, r_bw, w_bw] )):
     for disk in counters.keys():
       counters[disk] = 0
+      spindown[disk] = False
 
   # otherwise iterate over disks and increment counter when awake
   else:
@@ -64,8 +69,10 @@ for line in iostat.stdout:
       # keep counter at zero as long as the disk is in standby
       if standby is True:
         counters[disk] = 0
+        spindown[disk] = True
 
       # increment in active state and check if limit was reached
+      # don't reset spindown map if there was no activitiy, though
       if standby is False:
         counters[disk] += 1
         if counters[disk] >= args.limit:
@@ -77,6 +84,10 @@ for line in iostat.stdout:
       if standby is None:
         print(f"ERR: hdparm timed out for {disk}, skipping", file=sys.stderr, flush=True)
         continue
+
+  # if all disks are inactive, silence the logs
+  if args.quiet and all(spindown.values()):
+    continue
 
   # print this iteration's values and wait for next iostat line
   print(f"iostat\tops[{r_ops}, {w_ops}]\tbw[{r_bw}, {w_bw}]\tcounters{list(counters.values())}", flush=True)
