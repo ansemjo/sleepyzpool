@@ -8,7 +8,7 @@ After=syslog.target
 Type=simple
 User=root
 Group=root
-ExecStart=/usr/local/bin/sleepyzpool -i 60 -l 15 -q tank /dev/sda /dev/sdb /dev/sdc /dev/sdd
+ExecStart=/usr/local/bin/sleepyzpool -q /etc/sleepyzpool.toml
 
 # only allow access to needed devices
 PrivateDevices=no
@@ -34,7 +34,7 @@ RestrictSUIDSGID=yes
 LockPersonality=yes
 
 # try to restart the service
-Restart=always
+Restart=on-abnormal
 RestartSec=10s
 
 [Install]

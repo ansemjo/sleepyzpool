@@ -1,0 +1,11 @@
+# zpool to watch for activity with iostat
+zpool = "tank"
+
+# timeout in minutes before sending standby command
+timeout = 20
+
+# list of disks to control
+disks = [
+  "/dev/sda",
+  "/dev/sdb",
+]

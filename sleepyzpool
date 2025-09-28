@@ -4,22 +4,25 @@
 # Licensed under the MIT License
 
 from subprocess import run, Popen, PIPE, TimeoutExpired
-import argparse, sys, signal
+import argparse, sys, signal, tomllib
 
-# argument type for limit and interval
-def positive(s: str) -> int:
-  if int(s) < 1: raise ValueError
-  return int(s)
-
-# get pool name and disks from commandline
-# TODO: check if disks are actually disks, zpool binary exists, etc.
+# get config file path from commandline
 parser = argparse.ArgumentParser()
-parser.add_argument("pool", help="the zpool name to watch with iostat")
-parser.add_argument("disks", help="one or more disks to send to standby", nargs="+")
-parser.add_argument("--limit", "-l", metavar="N", help="limit in intervals before spinning down disks", type=positive, default=20)
-parser.add_argument("--interval", "-i", metavar="S", help="iostat interval in seconds", type=positive, default=60)
+parser.add_argument("config", help="path to the TOML config file", type=argparse.FileType("rb"), default="/etc/sleepyzpool.toml", nargs="?")
 parser.add_argument("--quiet", "-q", help="silence iostat log when all disks are asleep", action="store_true")
+parser.add_argument("--check", "-C", help="check current disk status and exit", action="store_true")
+parser.add_argument("--now", "-y", help="send disks to sleep right now and exit", action="store_true")
 args = parser.parse_args()
+
+# read the config from file and pray you got the format right
+conf = tomllib.load(args.config)
+zpool = conf.get("zpool")
+assert isinstance(zpool, str) and len(zpool), "'zpool' must be the zpool name to watch"
+disks = conf.get("disks")
+assert isinstance(disks, list) and len(disks), "'disks' must be an array of devices to standby"
+timeout = conf.get("timeout", 20)
+assert isinstance(timeout, int) and timeout > 0, "'timeout' must be a positive timout in minutes"
+
 
 def in_standby(disk: str) -> bool | None:
   "Check if a disk is in standby / spun down with hdparm."
@@ -39,17 +42,29 @@ def issue_standby(disk: str) -> bool:
     return True
   except TimeoutExpired:
     return False
+  
+# handle check and now flags
+if args.check:
+  for disk in disks:
+    print(f"{disk}: {'standby' if in_standby(disk) else 'active'}")
+  exit(0)
+
+if args.now:
+  for disk in disks:
+    print(f"{disk}: issuing standby command")
+    issue_standby(disk)
+  exit(0)
 
 # keep a counter of idle minutes for each disk
-counters = { disk: 0 for disk in args.disks }
+counters = { disk: 0 for disk in disks }
 
 # silence logs when all disks are spun down as long as there is no activity
-spindown = { disk: False for disk in args.disks }
+spindown = { disk: False for disk in disks }
 
 # start the zpool iostat and parse the stdout lines
 # -y : skip first line (since boot)
 # -H : scripted mode without header
-iostat = Popen(["zpool", "iostat", "-yH", args.pool, str(args.interval)], stdout=PIPE)
+iostat = Popen(["zpool", "iostat", "-yH", zpool, "60"], stdout=PIPE)
 
 # register a signal handler to terminate on ^C
 def interrupt(signal, frame):
@@ -70,7 +85,7 @@ for line in iostat.stdout:
 
   # otherwise iterate over disks and increment counter when awake
   else:
-    for disk in args.disks:
+    for disk in disks:
       standby = in_standby(disk)
 
       # keep counter at zero as long as the disk is in standby
@@ -82,7 +97,7 @@ for line in iostat.stdout:
       # don't reset spindown map if there was no activitiy, though
       if standby is False:
         counters[disk] += 1
-        if counters[disk] >= args.limit:
+        if counters[disk] >= timeout:
           print(f"hdparm\tissuing standby: {disk}", flush=True)
           if issue_standby(disk):
             counters[disk] = 0
@@ -97,7 +112,7 @@ for line in iostat.stdout:
     continue
 
   # print this iteration's values and wait for next iostat line
-  print(f"iostat\tops[{r_ops}, {w_ops}]\tbw[{r_bw}, {w_bw}]\tcounters{list(counters.values())}", flush=True)
+  print(f"iostat\tops[{r_ops}, {w_ops}]  bw[{r_bw}, {w_bw}]  idle{list(counters.values())}", flush=True)
 
 
 # wait for process to end after interrupt
