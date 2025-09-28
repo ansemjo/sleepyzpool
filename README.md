@@ -10,29 +10,37 @@ I got the idea from [ZFS disk spin down on fworkx.de](https://www.fworkx.de/2020
 
 * monitor `zpool iostat` continuously instead of repeatedly for just one second
 * don't be clever in detecting the harddisks of the pool
-* no "inactive" timeframes within the script
+* no "inactive" timeframes within the script; stop the service if needed
 
-The reason for not trying to be overly clever is that my own ZFS pool is constructed with four *LUKS encrypted* harddisks. It is possible to detect which drives are underlying a dm-crypt mapper ... but why? Just name those drives on the commandline explicitly.
+The reason for not trying to be overly clever is that my own ZFS pool is constructed with four encrypted harddisks. It is possible to detect which drives are underlying a dm-crypt mapper ... but why? Just list those drives explicitly.
 
 ### usage
 
-There's two required arguments: `./sleepyzpool pool disks [disks ...]`
+There's is one semi-required argument: `./sleepyzpool [config.toml]`. By default it will try to open `/etc/sleepyzpool.toml` and this config should look like this:
 
-* `pool` is the name of your zpool, duh'
-* `disks` is a list with all the disks you want to spin down
+```toml
+# zpool to watch for activity with iostat
+zpool = "tank"
 
-Additionally you can configure the timeout with two optional flags: `interval × limit`
+# timeout without I/O in minutes before issuing standby command
+timeout = 20
 
-* `--interval` is the interval in seconds; `60` might make sense
-* `--limit` is the number of intervals with no I/O before issuing the standby command
+# list of disks to control and spin down after timeout
+disks = [
+  "/dev/sda",
+  "/dev/sdb",
+]
+```
 
-And optionally:
+You can optionally use `--quiet` to silence the `iostat` log output when all disks are spun down.
+Apart from that there are two "command" flags:
 
-* `--quiet` will silence the `iostat` log output when all disks are spun down
+* `--check` / `-C` will output if the drives are *currently* in standby and exit
+* `--now` / `-y` will issue standby commands for all disks immediately
 
 ### example
 
-This is an example with a very short timeout (6 × 10 seconds) on a zpool `tank` across four drives:
+This is an example with a very short timeout on a zpool `tank` across four drives:
 
 ```
 # ./sleepyzpool --interval 10 --limit 6 tank /dev/sd{a..d} | ts
