@@ -1,8 +1,12 @@
 NAME    := sleepyzpool
 
+.DEFAULT_GOAL := packages
+
 REVISION := $(shell git rev-list --count HEAD)
 COMMIT   := $(shell git describe --always --abbrev --match '^$$')
 VERSION  := r$(REVISION)-g$(COMMIT)
+
+# ---------- install ----------
 
 # installation directory
 DESTDIR :=
@@ -23,7 +27,7 @@ $(DESTDIR)/etc/$(NAME).toml: $(NAME).toml
 $(DESTDIR)/usr/lib/systemd/system/$(NAME).service: $(NAME).service
 	install -m 644 -D $< $@
 
-# ---------- packaging ----------
+# ---------- package ----------
 
 # package metadata
 PKGNAME     = $(NAME)
@@ -42,9 +46,9 @@ package-% :
 	mkdir -p release
 	$(FPM) -s dir -t $* -f --chdir package \
 		--name $(PKGNAME) \
-		--version $(PKGVERSION) \
+		--version v0.$(REVISION).g$(COMMIT) \
 		--url $(PKGURL) \
-		--package release/$(PKGNAME)-$(PKGVERSION).$*
+		--package release/$(PKGNAME)-$(VERSION).$*
 
 # build all package formats with fpm
 .PHONY: packages
