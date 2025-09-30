@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+
+# the machine to control
+remote="${SLEEPYCTL_REMOTE:?must provide a remote via environment variable}"
+
+# control the sleepyzpool service on another machine
+sleepyzpool() {
+  if [[ $1 = now ]]; then # issue standby commands now
+    ssh "$remote" sleepyzpool -y
+  elif [[ $1 = check ]]; then # check the current disk status
+    ssh "$remote" sleepyzpool -C
+  elif [[ $1 = pause ]]; then # stop service and restart at specified time
+    shift 1; # if first token is a "+" then time is relative
+    if [[ $1 = + ]]; then when=(at now "$@"); else when=(at "$@"); fi
+    (set -x; ssh "$remote" systemctl stop sleepyzpool)
+    (set -x; echo systemctl start sleepyzpool | ssh "$remote" "${when[@]}")
+  else # control the service directly
+    (set -x; ssh -t "$remote" systemctl "$1" sleepyzpool)
+  fi;
+}
+sleepyzpool "$@"
+
+#complete -W "start status stop enable disable now check pause" sleepyctl
